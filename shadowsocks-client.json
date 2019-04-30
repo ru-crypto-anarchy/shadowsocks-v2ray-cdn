@@ -1,0 +1,16 @@
+{
+  "server": "<MY_DOMAIN>",
+  "server_port": 443,
+  "local_port": 1080,
+  "password": "<SS_PASSWORD>",
+  "method": "xchacha20-ietf-poly1305",
+
+  "plugin": "v2ray-plugin",
+  "plugin_opts": "tls;host=<MY_DOMAIN>;path=/wss;loglevel=none",
+
+  "timeout": 300,
+  "mptcp": true,
+  "reuse_port": true,
+  "fast_open": true,
+  "ipv6_first": false
+}

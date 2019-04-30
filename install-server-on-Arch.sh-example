@@ -1,0 +1,90 @@
+#!/bin/bash
+### NOT TESTED!
+echo "EDIT variables before and run as root" && exit
+MY_DOMAIN=domain.tld
+CLOUDFLARE_EMAIL=mail@domain.tld
+CLOUDFLARE_API_KEY=31337
+SS_PASSWORD=""
+
+SS_ROOT="/etc/shadowsocks"
+#CHOWN_USER="shadowsocks"
+CHOWN_USER="nobody"
+DAEMON_CERT_ROOT="/etc/shadowsocks/certs"
+INI_FILE="cloudflare.ini"
+CERTBOT_INI_DIR="/root/.secrets/certbot"
+CERTBOT_DEPLOY_HOOKS_DIR="/etc/letsencrypt/renewal-hooks/deploy"
+CERTBOT_DEPLOY_HOOK_NAME="deploy"
+CERTBOT_LIVE_DIR="/etc/letsencrypt/live"
+
+# INSTALL
+pacman -S \
+  shadowsocks-libev \
+  shadowsocks-v2ray-plugin \
+  certbot \
+  certbot-dns-cloudflare
+
+# V2RAY permissions 
+# https://bugs.archlinux.org/task/62416
+setcap cap_net_bind_service+ep /usr/bin/v2ray-plugin
+
+cd $(dirname "$0")
+
+# CERT
+mkdir -p $CERTBOT_INI_DIR
+cat >$CERTBOT_INI_DIR/$INI_FILE <<EOL
+dns_cloudflare_email = $CLOUDFLARE_EMAIL
+dns_cloudflare_api_key = $CLOUDFLARE_API_KEY
+EOL
+chmod 600 $CERTBOT_INI_DIR/$INI_FILE
+
+certbot certonly \
+  --dns-cloudflare \
+  --dns-cloudflare-credentials $CERTBOT_INI_DIR/$INI_FILE \
+  --dns-cloudflare-propagation-seconds 120 \
+  -d $MY_DOMAIN
+
+cp "$CERTBOT_LIVE_DIR/$MY_DOMAIN/fullchain.pem" "$DAEMON_CERT_ROOT/$MY_DOMAIN.cert"
+cp "$CERTBOT_LIVE_DIR/$MY_DOMAIN/privkey.pem" "$DAEMON_CERT_ROOT/$MY_DOMAIN.key"
+
+chown "$CHOWN_USER:" \
+  "$DAEMON_CERT_ROOT/$MY_DOMAIN.cert" \
+  "$DAEMON_CERT_ROOT/$MY_DOMAIN.key"
+chmod 400 \
+  "$DAEMON_CERT_ROOT/$MY_DOMAIN.cert" \
+  "$DAEMON_CERT_ROOT/$MY_DOMAIN.key"
+
+# CERT DEPLOY HOOK
+mkdir -p $CERTBOT_DEPLOY_HOOKS_DIR
+cp certbot-renewal-hook-deploy $CERTBOT_DEPLOY_HOOKS_DIR/$CERTBOT_DEPLOY_HOOK_NAME
+sed -i \
+  -e "s/<MY_DOMAIN>/$MY_DOMAIN/" \
+  -e "s/<CHOWN_USER>/$CHOWN_USER/" \
+  $CERTBOT_DEPLOY_HOOKS_DIR/$CERTBOT_DEPLOY_HOOK_NAME
+
+# CRON
+echo -e "@daily\t\tcertbot renew" >> /var/spool/cron/root 
+chmod 600 /var/spool/cron/root 
+
+# SHADOWSOCKS CONFIG
+cp shadowsocks-server.json $SS_ROOT/$MY_DOMAIN.json
+sed -i \
+  -e "s/<SS_PASSWORD>/$SS_PASSWORD/" \
+  -e "s/<MY_DOMAIN>/$MY_DOMAIN/g" \
+  $SS_ROOT/$MY_DOMAIN.json
+
+# Я уже забыл зачем мне нужно было создавать пользователя shadowsocks вместо nobody, 
+# возможно это лишняя операция
+
+# ADD SHADOWSOCKS USER
+# useradd --system --user-group --home $SS_ROOT shadowsocks
+# chown $CHOWN_USER: -R $SS_ROOT
+
+# SYSTEMD SHADOWSOCKS USER
+# sudo cp /usr/lib/systemd/system/shadowsocks-libev-server@.service \
+#   /etc/systemd/system/shadowsocks-libev-server@$MY_DOMAIN.service
+# sed -i "s/nobody/shadowsocks/" \
+#   /etc/systemd/system/shadowsocks-libev-server@$MY_DOMAIN.service
+
+# SYSTEMD ENABLE SERVICE
+systemctl enable shadowsocks-libev-server@$MY_DOMAIN
+systemctl start shadowsocks-libev-server@$MY_DOMAIN

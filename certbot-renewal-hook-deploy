@@ -1,0 +1,31 @@
+#!/bin/sh
+set -e
+
+for domain in $RENEWED_DOMAINS; do
+    case $domain in
+    <MY_DOMAIN>)
+        daemon_cert_root="/etc/shadowsocks/certs"
+        chown_user="<CHOWN_USER>:"
+        service_name="shadowsocks-libev-server@$domain"
+
+        mkdir -p "$daemon_cert_root"
+
+        # Make sure the certificate and private key files are
+        # never world readable, even just for an instant while
+        # we're copying them into daemon_cert_root.
+        umask 077
+
+        cp "$RENEWED_LINEAGE/fullchain.pem" "$daemon_cert_root/$domain.cert"
+        cp "$RENEWED_LINEAGE/privkey.pem" "$daemon_cert_root/$domain.key"
+
+        # Apply the proper file ownership and permissions for
+        # the daemon to read its certificate and key.
+        chown "$chown_user" "$daemon_cert_root/$domain.cert" \
+                "$daemon_cert_root/$domain.key"
+        chmod 400 "$daemon_cert_root/$domain.cert" \
+                "$daemon_cert_root/$domain.key"
+
+        systemctl restart "$service_name" 
+        ;;
+    esac
+done
